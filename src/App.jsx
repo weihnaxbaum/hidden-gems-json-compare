@@ -78,14 +78,16 @@ export default function App() {
           return;
         }
 
-        const sorted = [...rounds].sort((a, b) => b.score - a.score);
+        let sorted = [...rounds].sort((a, b) => b.score - a.score);
         const scores = sorted.map((r) => r.score);
+        sorted = [...rounds].sort((a, b) => b.response_time_stats.median - a.response_time_stats.median);
+        const times = sorted.map((r) => r.response_time_stats);
 
         const name = root.name || res.name;
         const key = sanitizeKey(name + "__" + res.name);
 
         const existingIndex = nextFiles.findIndex((f) => f.key === key);
-        const fileObj = { key, name, fileName: res.name, scores };
+        const fileObj = { key, name, fileName: res.name, scores, times };
         if (existingIndex >= 0) nextFiles[existingIndex] = fileObj;
         else nextFiles.push(fileObj);
       });
@@ -101,16 +103,24 @@ export default function App() {
 
   const filesWithStats = files.map((f) => {
     const n = f.scores.length;
-    const sum = f.scores.reduce((s, x) => s + x, 0);
-    const avg = n ? sum / n : null;
-    return { ...f, avg };
+    const scoreSum = f.scores.reduce((s, x) => s + x, 0);
+    const avgScore = n ? scoreSum / n : null;
+    const avgTime = n ? f.times.reduce((s, x) => s + x.median, 0) / n / 1000000.0 : null;
+    return { ...f, avgScore, avgTime };
   });
 
   const maxLen = filesWithStats.reduce((m, f) => Math.max(m, f.scores.length), 0);
-  const chartData = Array.from({ length: maxLen }, (_, i) => {
+  const scoreChartData = Array.from({ length: maxLen }, (_, i) => {
     const point = { round: i + 1 };
     filesWithStats.forEach((f) => {
       point[f.key] = f.scores[i] == null ? null : f.scores[i];
+    });
+    return point;
+  });
+  const timeChartData = Array.from({ length: maxLen }, (_, i) => {
+    const point = { round: i + 1 };
+    filesWithStats.forEach((f) => {
+      point[f.key] = f.times[i].median == null ? null : f.times[i].median / 1000000.0;
     });
     return point;
   });
@@ -125,13 +135,12 @@ export default function App() {
             </h1>
             <p className="mt-1 text-sm text-slate-600">
               Use the runner's <code>--write-profile-json</code> flag and upload the output files.
-              <br/>The graph shows the score of each round and the average score of all rounds per file.
             </p>
           </div>
           <div className="flex items-center gap-3">
             <label className="inline-flex items-center px-4 py-2 bg-white border rounded shadow-sm cursor-pointer hover:bg-slate-50">
               <input id="json-upload" type="file" accept="application/json" multiple onChange={handleFileInput} className="hidden" />
-              <svg className="w-4 h-4 mr-2 text-slate-600" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 3v12" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M8 7l4-4 4 4" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              <svg className="w-4 h-4 mr-2 text-slate-600" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 3v12" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /><path d="M8 7l4-4 4 4" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
               <span className="text-sm text-slate-700">Upload JSON</span>
             </label>
           </div>
@@ -161,13 +170,15 @@ export default function App() {
           )}
         </div>
 
+        <p>Score</p>
+
         <div className="bg-white border rounded shadow p-4">
           {files.length === 0 ? (
             <div className="text-center text-slate-500 py-12">Upload JSON files to see the chart.</div>
           ) : (
             <div style={{ width: "100%", height: 480 }}>
               <ResponsiveContainer>
-                <LineChart data={chartData} margin={{ top: 20, right: 70, left: 20, bottom: 20 }}>
+                <LineChart data={scoreChartData} margin={{ top: 20, right: 70, left: 20, bottom: 20 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="round" tickFormatter={(v) => `#${v}`} label={{ value: "Round (ranked: #1 = highest score)", position: "insideBottom", offset: -8 }} />
                   <YAxis allowDecimals={false} />
@@ -177,8 +188,37 @@ export default function App() {
                   ))}
 
                   {filesWithStats.map((f, idx) => (
-                    f.avg != null ? (
-                      <ReferenceLine key={f.key + "_avg"} y={f.avg} stroke={SAMPLE_COLORS[idx % SAMPLE_COLORS.length]} strokeDasharray="3 2" strokeWidth={1} label={{ position: "right", value: `${f.avg}` }} />
+                    f.avgScore != null ? (
+                      <ReferenceLine key={f.key + "_avg"} y={f.avgScore} stroke={SAMPLE_COLORS[idx % SAMPLE_COLORS.length]} strokeDasharray="3 2" strokeWidth={1} label={{ position: "right", value: `${f.avgScore}` }} />
+                    ) : null
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
+
+        <br />
+        <p>Median response time (ms)</p>
+
+        <div className="bg-white border rounded shadow p-4">
+          {files.length === 0 ? (
+            <div className="text-center text-slate-500 py-12">Upload JSON files to see the chart.</div>
+          ) : (
+            <div style={{ width: "100%", height: 480 }}>
+              <ResponsiveContainer>
+                <LineChart data={timeChartData} margin={{ top: 20, right: 70, left: 20, bottom: 20 }}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="round" tickFormatter={(v) => `#${v}`} label={{ value: "Round (ranked: #1 = longest (worst))", position: "insideBottom", offset: -8 }} />
+                  <YAxis />
+                  <Tooltip />
+                  {filesWithStats.map((f, idx) => (
+                    <Line key={f.key} type="monotone" dataKey={f.key} name={f.fileName} stroke={SAMPLE_COLORS[idx % SAMPLE_COLORS.length]} strokeWidth={2} dot={false} connectNulls={false} />
+                  ))}
+
+                  {filesWithStats.map((f, idx) => (
+                    f.avgTime != null ? (
+                      <ReferenceLine key={f.key + "_avg"} y={f.avgTime} stroke={SAMPLE_COLORS[idx % SAMPLE_COLORS.length]} strokeDasharray="3 2" strokeWidth={1} label={{ position: "right", value: `${f.avgTime.toFixed(3)}` }} />
                     ) : null
                   ))}
                 </LineChart>
