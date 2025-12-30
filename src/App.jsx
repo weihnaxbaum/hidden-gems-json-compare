@@ -2,10 +2,12 @@ import React, { useState } from "react";
 import {
   ResponsiveContainer,
   LineChart,
+  ComposedChart,
   XAxis,
   YAxis,
   Tooltip,
   Line,
+  Area,
   CartesianGrid,
   ReferenceLine,
 } from "recharts";
@@ -87,7 +89,7 @@ export default function App() {
         const key = sanitizeKey(name + "__" + res.name);
 
         const existingIndex = nextFiles.findIndex((f) => f.key === key);
-        const fileObj = { key, name, fileName: res.name, scores, times };
+        const fileObj = { key, name, fileName: res.name.replace(".json", ""), scores, times };
         if (existingIndex >= 0) nextFiles[existingIndex] = fileObj;
         else nextFiles.push(fileObj);
       });
@@ -120,10 +122,13 @@ export default function App() {
   const timeChartData = Array.from({ length: maxLen }, (_, i) => {
     const point = { round: i + 1 };
     filesWithStats.forEach((f) => {
-      point[f.key] = f.times[i].median == null ? null : f.times[i].median / 1000000.0;
+      point[f.key + "_median"] = f.times[i].median / 1000000.0;
+      point[f.key + "_range"] = [f.times[i].min / 1000000.0, f.times[i].max / 1000000.0];
     });
     return point;
   });
+  let [showTimeRange, setShowTimeRange] = useState(false);
+  let [timeButton, setTimeButton] = useState("Median");
 
   return (
     <div className="min-h-screen py-12 px-4 sm:px-6 lg:px-8 bg-slate-50">
@@ -199,7 +204,13 @@ export default function App() {
         </div>
 
         <br />
-        <p>Median response time (ms)</p>
+        <p>
+          <button onClick={() => {
+            setTimeButton(showTimeRange ? "Median" : "Min-Max");
+            setShowTimeRange(prev => { return !prev; })
+          }} className="bg-white border rounded shadow-sm cursor-pointer hover:bg-slate-50">{timeButton}</button>
+          &nbsp;response time (ms)
+        </p>
 
         <div className="bg-white border rounded shadow p-4">
           {files.length === 0 ? (
@@ -207,21 +218,24 @@ export default function App() {
           ) : (
             <div style={{ width: "100%", height: 480 }}>
               <ResponsiveContainer>
-                <LineChart data={timeChartData} margin={{ top: 20, right: 70, left: 20, bottom: 20 }}>
+                <ComposedChart data={timeChartData} margin={{ top: 20, right: 70, left: 20, bottom: 20 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="round" tickFormatter={(v) => `#${v}`} label={{ value: "Round (ranked: #1 = longest (worst))", position: "insideBottom", offset: -8 }} />
                   <YAxis />
                   <Tooltip />
                   {filesWithStats.map((f, idx) => (
-                    <Line key={f.key} type="monotone" dataKey={f.key} name={f.fileName} stroke={SAMPLE_COLORS[idx % SAMPLE_COLORS.length]} strokeWidth={2} dot={false} connectNulls={false} />
+                    <>
+                      {showTimeRange ?
+                        <Area type="monotone" dataKey={f.key + "_range"} name={f.fileName} stroke={SAMPLE_COLORS[idx % SAMPLE_COLORS.length]} strokeWidth={0} fill={SAMPLE_COLORS[idx % SAMPLE_COLORS.length]} />
+                        : <Line type="monotone" dataKey={f.key + "_median"} name={f.fileName} stroke={SAMPLE_COLORS[idx % SAMPLE_COLORS.length]} strokeWidth={2} dot={false} connectNulls={false} />
+                      }
+                      {f.avgTime != null && !showTimeRange && (
+                        <ReferenceLine key={f.key + "_avg"} y={f.avgTime} stroke={SAMPLE_COLORS[idx % SAMPLE_COLORS.length]} strokeDasharray="3 2" strokeWidth={1} label={{ position: "right", value: `${f.avgTime.toFixed(3)}` }} />
+                      )}
+                    </>
                   ))}
 
-                  {filesWithStats.map((f, idx) => (
-                    f.avgTime != null ? (
-                      <ReferenceLine key={f.key + "_avg"} y={f.avgTime} stroke={SAMPLE_COLORS[idx % SAMPLE_COLORS.length]} strokeDasharray="3 2" strokeWidth={1} label={{ position: "right", value: `${f.avgTime.toFixed(3)}` }} />
-                    ) : null
-                  ))}
-                </LineChart>
+                </ComposedChart>
               </ResponsiveContainer>
             </div>
           )}
